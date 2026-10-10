@@ -162,3 +162,59 @@ for frac in (0.2, 0.3):
     cav = v_dev * frac
     for fill in (0.5,):
         print(f"抽屉腔占 {frac:.0%} = {cav:.0f} cm³，按 50% 装填（给膨胀留空间）、堆积密度 0.9–1.0 g/cm³ → CaO {cav * fill * 0.9:.0f}–{cav * fill * 1.0:.0f} g")
+
+# ---------- 硅胶替代方案 ----------
+# 25 °C 吸附等温线数据点 (RH%, 吸附量 % 自重)，来源见报告"硅胶方案"一节
+ISOTHERMS = {
+    "Multicomp 非变色硅胶（典型值）": [(10, 6.5), (20, 12), (50, 27), (80, 36)],
+    "双龙 A 型细孔（典型值）": [(50, 29.2), (90, 37.6)],
+    "Multicomp 硅胶干燥剂（下限值）": [(20, 9.5), (50, 22), (90, 33)],
+    "双龙 B 型粗孔（典型值）": [(20, 5.5), (50, 14.5), (90, 72)],
+}
+SILICA_BULK = (0.70, 0.77)      # g/cm³，Multicomp 数据表
+SILICA_FILL = 0.95              # 硅胶不膨胀，可近乎装满
+CAO_FILL, CAO_BULK = 0.50, (0.9, 1.0)
+LATENT_25C = 2442               # J/g，25 °C 水的汽化潜热（吸附热不低于此值）
+
+
+def interp(points, x):
+    pts = sorted(points)
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        if x1 <= x <= x2:
+            return y1 + (y2 - y1) * (x - x1) / (x2 - x1)
+    return None
+
+
+section("11. 硅胶：目标湿度下的有效吸水率")
+for name, pts in ISOTHERMS.items():
+    if "B 型" in name:   # B 型等温线呈 S 形，数据点之间不能线性插值
+        print(f"{name}: 仅列数据点 " + ", ".join(f"{rh}% RH → {q}%" for rh, q in pts))
+        continue
+    vals = {rh: interp(pts, rh) for rh in (25, 50, 60)}
+    print(f"{name}: " + ", ".join(f"{rh}% RH → {v:.1f}%" if v is not None else f"{rh}% RH → 无数据" for rh, v in vals.items()))
+
+section("12. 整盒硅胶 vs 半盒氧化钙（抽屉腔 136–204 cm³）")
+for cav in (136, 170, 204):
+    cao_m = [cav * CAO_FILL * d for d in CAO_BULK]
+    si_m = [cav * SILICA_FILL * d for d in SILICA_BULK]
+    cao_w = [m * CAO_PRACTICAL for m in cao_m]
+    si_w_lo = si_m[0] * 0.2475    # 下限值曲线在 60% RH
+    si_w_hi = si_m[1] * 0.3125    # 双龙 A 型典型值在 60% RH
+    print(f"腔体 {cav} cm³: CaO {cao_m[0]:.0f}–{cao_m[1]:.0f} g → 吸水 {cao_w[0]:.0f}–{cao_w[1]:.0f} g；"
+          f"硅胶 {si_m[0]:.0f}–{si_m[1]:.0f} g → 60% RH 前吸水 {si_w_lo:.0f}–{si_w_hi:.0f} g")
+
+section("13. 中间值对比的可用天数（腔体 170 cm³，目标 60% RH）")
+cao_mid = 170 * CAO_FILL * 0.95 * CAO_PRACTICAL
+si_mid = 170 * SILICA_FILL * 0.735 * 0.28
+print(f"CaO 中间值 {cao_mid:.1f} g 水；硅胶中间值 {si_mid:.1f} g 水（吸水率取 28%），倍数 {si_mid / cao_mid:.2f}")
+for rh in RH_OUT:
+    print(f"柜外 {rh:.0%}: " + " | ".join(
+        f"λ={lam}: CaO {cao_mid / loads[(rh, lam)]:.1f} 天 / 硅胶 {si_mid / loads[(rh, lam)]:.1f} 天" for lam in LEAK_ACH))
+
+section("14. 硅胶再生能耗下限与变色指示时机")
+for w in (23, 33, 46):
+    e_wh = w * LATENT_25C / 3600
+    print(f"脱附 {w} g 水至少需 {e_wh:.1f} Wh（仅汽化潜热），单节 18650 约 {BATTERY_WH:.1f} Wh")
+q25 = interp(ISOTHERMS["Multicomp 非变色硅胶（典型值）"], 25)
+q60 = interp(ISOTHERMS["Multicomp 非变色硅胶（典型值）"], 60)
+print(f"橙/绿变色约在 20–35% RH 变色：25% RH 时吸附量约 {q25:.1f}%，仅为 60% RH 容量 {q60:.1f}% 的 {q25 / q60:.0%}")
